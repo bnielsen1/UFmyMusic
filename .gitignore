@@ -1,0 +1,12 @@
+ 
+# Ignore all .mp3 files in the server and client folders
+server/*.mp3
+client/*.mp3
+
+# Ignore any text files that the server or client might generate for logging
+server/*.txt
+client/*.txt
+
+# Ignore the client and server executables
+server/server
+client/client

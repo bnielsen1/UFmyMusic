@@ -1,0 +1,357 @@
+/*///////////////////////////////////////////////////////////
+*
+* FILE:		server.c
+* AUTHOR:	Your Name Here
+* PROJECT:	CNT 4007 Project 1 - Professor Traynor
+* DESCRIPTION:	Network Server Code
+*
+*////////////////////////////////////////////////////////////
+
+/*Included libraries*/
+
+#include <stdio.h>	  /* for printf() and fprintf() */
+#include <sys/socket.h>	  /* for socket(), connect(), send(), and recv() */
+#include <arpa/inet.h>	  /* for sockaddr_in and inet_addr() */
+#include <stdlib.h>	  /* supports all sorts of functionality */
+#include <unistd.h>	  /* for close() */
+#include <string.h>	  /* support any string ops */
+#include <iostream>
+#include <string>
+#include <set>
+#include <unordered_map>
+#include <vector>
+#include <map>
+#include <fstream>
+#include <filesystem>
+#include <openssl/sha.h>
+#include <openssl/evp.h>  /* for OpenSSL EVP digest libraries/SHA256 */
+
+using namespace std;
+
+#define RCVBUFSIZE 512		/* The receive buffer size */
+#define SNDBUFSIZE 512		/* The send buffer size */
+#define BUFSIZE 40		/* Your name can be as many as 40 chars */
+#define MAXPENDING 10 /* Max number of incoming connections */
+
+struct Song {
+    char title[256];
+    uint32_t uid;
+};
+
+/* Fatal Error Handler */
+void fatal_error(const char *error_message) {
+  perror(error_message);
+  exit(EXIT_FAILURE);
+}
+
+uint32_t getSongHash(string filepath) {
+    ifstream song(filepath, ios::binary);
+    if (!song.is_open()) {
+        fatal_error("Failed to open song file when attempting to hash");
+    }
+
+    // Setup hash variables
+    const uint32_t FNV_prime = 16777619U;
+    uint32_t hash_string = 2166136261U;
+
+    // Create a buffer to read file data into
+    char buffer[4096];
+    while (song.read(buffer, sizeof(buffer)) || song.gcount()) {
+        for (streamsize i=0; i<song.gcount(); i++) {
+            hash_string ^= static_cast<unsigned char>(buffer[i]);
+            hash_string *= FNV_prime;
+        }
+    }
+
+    return hash_string;
+}
+
+map<uint32_t, Song> getLocalSongs(int &clnt_sock) {
+    map<uint32_t, Song> unique_songs;
+    filesystem::path root_dir = filesystem::current_path();
+
+    // Create song objects and insert them into a map
+    for (const auto &song : filesystem::directory_iterator(root_dir)) {
+        // Check if we have a file not a directory
+        if (song.is_regular_file()) {
+            // Get the song's path so we can hash it
+            string song_path = song.path().string();
+            uint32_t song_hash = getSongHash(song_path);
+
+            Song song_entry;
+            song_entry.uid = song_hash;
+            memset(song_entry.title, 0, sizeof(song_entry.title));
+            strncpy(song_entry.title, song.path().filename().string().c_str(), sizeof(song_entry.title));
+            song_entry.title[song.path().filename().string().size()] = '\0';
+
+            // Ensure song is unique
+            if(unique_songs.find(song_entry.uid) == unique_songs.end()) {
+                // Ensure song isn't a server file
+                string title = song_entry.title;
+                if (("server.cpp" != title) && ("server" != title)) {
+                    unique_songs.insert({song_entry.uid, song_entry});
+                    
+                }
+            }
+        }
+    }
+
+    return unique_songs;
+}
+
+map<uint32_t, Song> generateList(int &clnt_sock) {
+    map<uint32_t, Song> unique_songs;
+    filesystem::path root_dir = filesystem::current_path();
+
+    // Create song objects and insert them into a map
+    for (const auto &song : filesystem::directory_iterator(root_dir)) {
+        // Check if we have a file not a directory
+        if (song.is_regular_file()) {
+            // Get the song's path so we can hash it
+            string song_path = song.path().string();
+            uint32_t song_hash = getSongHash(song_path);
+
+            Song song_entry;
+            song_entry.uid = song_hash;
+            memset(song_entry.title, 0, sizeof(song_entry.title));
+            strncpy(song_entry.title, song.path().filename().string().c_str(), sizeof(song_entry.title));
+            song_entry.title[song.path().filename().string().size()] = '\0';
+
+            // Ensure song is unique
+            if(unique_songs.find(song_entry.uid) == unique_songs.end()) {
+                // Ensure song isn't a server file
+                string title = song_entry.title;
+                if (("server.cpp" != title) && ("server" != title)) {
+                    unique_songs.insert({song_entry.uid, song_entry});
+                    
+                }
+            }
+        }
+    }
+
+    // Send song entries to client
+
+    // Tell client how many entries to expect
+    int song_count = unique_songs.size();
+    if (send(clnt_sock, &song_count, sizeof(song_count), 0) != sizeof(song_count)) {
+        fatal_error("Failed to send a song title length to client in LIST");
+    }
+
+    // Send all unique entires
+    for (auto it = unique_songs.begin(); it != unique_songs.end(); it++) {
+        Song entry = it->second;
+        if (send(clnt_sock, &entry, sizeof(entry), 0) != sizeof(entry)) {
+            fatal_error("Failed to send a song title length to client in LIST");
+        }
+    }
+
+    return unique_songs;
+}
+
+bool handleDiff(int &clnt_sock) {
+
+    // Send a list of local server files to the client
+    generateList(clnt_sock);
+
+    return true;
+}
+
+bool handleList(int &clnt_sock) {
+    
+    map<uint32_t, Song> songs = generateList(clnt_sock);
+
+    cout << "\n";
+    cout << left << setw(50) << "Song Title" <<  " | " << "UID\n";
+    cout << "This is a reference. Client should print same result.\n";
+    cout << string(70, '-') << "\n";
+
+    for (auto it = songs.begin(); it != songs.end(); it++) {
+        Song entry = it->second;
+        cout << left << setw(50) << entry.title << " | " << entry.uid << "\n";
+    }
+
+    cout << "\n";
+
+    return true;
+}
+
+bool handlePull(int &clnt_sock) {
+
+    // Grab a list of songs that are on the server locally
+    map<uint32_t, Song> local_songs = getLocalSongs(clnt_sock);
+    cout << "Generated list of local songs\n";
+
+    // Send client songs from server
+    generateList(clnt_sock);
+
+    // Get number of missing songs on client
+    int missing_count = 0;
+    if (recv(clnt_sock, &missing_count, sizeof(missing_count), 0) < 0) {
+        fatal_error("Failed to receive number of missing files in PULL");
+    }
+
+    cout << "Received number of missing files: " << missing_count << "\n";
+
+    // Start sending a song for each missing song on client
+    for (int i=0; i<missing_count; i++) {
+        // Receive missing song UID
+        uint32_t song_uid;
+        if (recv(clnt_sock, &song_uid, sizeof(song_uid), 0) < 0) {
+            fatal_error("Failed to receive a UID in PULL");
+        }
+
+        cout << "Received UID: " << song_uid << "\n";
+
+        // Retrieve the song file title corresponding to received UID
+        string filename = local_songs.at(song_uid).title;
+        
+        // Load that song file into memory
+        ifstream song_file(filename, ios::binary | ios::ate);
+        if(!song_file.is_open()) {
+            fatal_error("Failed to find the song file corresponding to the name we were given in PULL");
+        }
+
+        // Get the song's file size and send it to the client
+        streamsize song_size = song_file.tellg();
+
+        cout << "song size: " << song_size << "\n";
+
+        song_file.seekg(0, ios::beg);
+        if(send(clnt_sock, &song_size, sizeof(song_size), 0) < 0) {
+            fatal_error("Failed to send the size of the song we're sending to the client in PULL");
+        }
+
+        // Begin sending raw song file data to client
+        char buffer[1024];
+        int total_sent = 0;
+        while(song_file.read(buffer, sizeof(buffer))) {
+            int sent;
+            if((sent = send(clnt_sock, buffer, sizeof(buffer), 0)) < 0) {
+                fatal_error("failed to send a chunk of data to the client");
+                break;
+            }
+            total_sent = total_sent + sent;
+        }
+
+        if (song_file.gcount() > 0) {
+            int sent;
+            if ((sent = send(clnt_sock, buffer, song_file.gcount(), 0)) < 0) {
+                fatal_error("Failed to send the last chunk of the file");
+            }
+            total_sent += sent;
+        }
+
+        cout << "total sent: " << total_sent << "\n";
+
+        // Close song file
+        song_file.close();
+    }
+
+    return true;
+
+}
+
+bool handleClient(int &clnt_sock) {
+    // Receive a command
+    char buffer[RCVBUFSIZE];
+    int rec_com_size;
+
+    if ((rec_com_size = recv(clnt_sock, buffer, RCVBUFSIZE - 1, 0)) < 0) {
+        fatal_error("Failed to receive a client command!");
+    }
+    buffer[rec_com_size] = '\0';
+
+    // Process which command the server received
+    string command = buffer;
+    cout << "Rec command: " << command << "\n";
+
+    if (command == "LIST") {
+        cout << "Got list command!\n";
+        return handleList(clnt_sock);
+
+    } else if (command == "DIFF") {
+        cout << "Got diff command!\n";
+        return handleDiff(clnt_sock);
+
+    } else if (command == "PULL") {
+        cout << "Got pull command!\n";
+        return handlePull(clnt_sock);
+
+    } else if (command == "LEAVE") {
+        cout << "Got leave command!\n";
+        return false;
+    } else {
+        // Client somehow sent an incorrect command. Retry client handling
+        // Handle this better later
+        cout << "Didn't receive a real command\n";
+        return true;
+    }
+}
+
+/* The main function */
+int main(int argc, char *argv[])
+{
+    struct sockaddr_in serv_addr;
+    int clnt_sock;
+    struct sockaddr_in clnt_addr;
+    socklen_t clnt_len;
+
+    char nameBuf[BUFSIZE];			/* Buff to store name from client */
+    unsigned char md_value[EVP_MAX_MD_SIZE];	/* Buff to store change result */
+    EVP_MD_CTX *mdctx;				/* Digest data structure declaration */
+    const EVP_MD *md;				/* Digest data structure declaration */
+    int md_len;					/* Digest data structure size tracking */
+
+    /* Create new TCP Socket for incoming requests*/
+    int sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if ((sock) < 0) {
+      fatal_error("socket() failed");
+    }
+    // printf("Created new TCP socket\n");
+
+    /* Construct local address structure*/
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serv_addr.sin_port = htons(3179);
+
+    // printf("Constructed local address structure\n");
+    
+    /* Bind to local address structure */
+    if (bind(sock, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0) {
+      fatal_error("bind() failed");
+    }
+
+    // printf("Bound to local address structure\n");
+
+    /* Listen for incoming connections */
+    if (listen(sock, MAXPENDING) < 0) {
+      fatal_error("listen() failed");
+    }
+
+    // printf("listening for incoming connections\n");
+
+    /* Loop server forever*/
+    printf("Begin listening for clients on port: %d\n", 3179);
+    bool still_listening = true;
+    while(1)
+    {
+      /* Accept incoming connection */
+      clnt_len = sizeof(clnt_addr);
+      if ( (clnt_sock = accept(sock, (struct sockaddr *) &clnt_addr, &clnt_len)) < 0) {
+        fatal_error("accept() failed");
+      }
+      printf("accepted client!\n");
+
+      /* BEGIN NEW FUNCTIONALITIES */
+      
+      while(still_listening) {
+        still_listening = handleClient(clnt_sock);
+      }
+
+      close(clnt_sock);
+      break;
+    }
+
+}
+
