@@ -307,7 +307,7 @@ bool handlePull(int &clientSock) {
             // Write the song chunk to the file
             song_file.write(buffer, byte_chunk_size);
             bytes_downloaded = bytes_downloaded + byte_chunk_size;
-            cout << "bytes downloaed: " << bytes_downloaded << "\n";
+            // cout << "bytes downloaed: " << bytes_downloaded << "\n";
         }
 
         cout << "Downloaded: " << bytes_downloaded << "\n";

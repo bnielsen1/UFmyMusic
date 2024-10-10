@@ -19,7 +19,9 @@
 #include <string>
 #include <set>
 #include <unordered_map>
+#include <thread>
 #include <vector>
+#include <mutex>
 #include <map>
 #include <fstream>
 #include <filesystem>
@@ -32,6 +34,11 @@ using namespace std;
 #define SNDBUFSIZE 512		/* The send buffer size */
 #define BUFSIZE 40		/* Your name can be as many as 40 chars */
 #define MAXPENDING 10 /* Max number of incoming connections */
+
+mutex console_mutex;
+mutex list_mutex;
+mutex diff_mutex;
+mutex pull_mutex;
 
 struct Song {
     char title[256];
@@ -149,14 +156,18 @@ map<uint32_t, Song> generateList(int &clnt_sock) {
 }
 
 bool handleDiff(int &clnt_sock) {
+    list_mutex.lock();
 
     // Send a list of local server files to the client
     generateList(clnt_sock);
+
+    list_mutex.unlock();
 
     return true;
 }
 
 bool handleList(int &clnt_sock) {
+    list_mutex.lock();
     
     map<uint32_t, Song> songs = generateList(clnt_sock);
 
@@ -172,10 +183,13 @@ bool handleList(int &clnt_sock) {
 
     cout << "\n";
 
+    list_mutex.unlock();
+
     return true;
 }
 
 bool handlePull(int &clnt_sock) {
+    list_mutex.lock();
 
     // Grab a list of songs that are on the server locally
     map<uint32_t, Song> local_songs = getLocalSongs(clnt_sock);
@@ -247,45 +261,70 @@ bool handlePull(int &clnt_sock) {
         song_file.close();
     }
 
+    list_mutex.unlock();
+
     return true;
 
 }
 
-bool handleClient(int &clnt_sock) {
+void handleClient(int clnt_sock, sockaddr_in clnt_addr) {
     // Receive a command
     char buffer[RCVBUFSIZE];
     int rec_com_size;
+    memset(buffer, 0, sizeof(buffer));
 
-    if ((rec_com_size = recv(clnt_sock, buffer, RCVBUFSIZE - 1, 0)) < 0) {
-        fatal_error("Failed to receive a client command!");
+    bool still_running = true;
+    while (true) {
+        if ((rec_com_size = recv(clnt_sock, buffer, RCVBUFSIZE - 1, 0)) < 0) {
+            fatal_error("Failed to receive a client command!");
+        }
+        else if (rec_com_size == 0) {
+            console_mutex.lock();
+            cout << "a client disconnected.\n";
+            console_mutex.unlock();
+            still_running = false;
+            break;
+        }
+        buffer[rec_com_size] = '\0';
+
+        // Process which command the server received
+        string command = buffer;
+        console_mutex.lock();
+        cout << "Rec command: " << command << "\n";
+        console_mutex.unlock();
+
+        if (command == "LIST") {
+            console_mutex.lock();
+            cout << "Got list command!\n";
+            console_mutex.unlock();
+            still_running = handleList(clnt_sock);
+
+        } else if (command == "DIFF") {
+            console_mutex.lock();
+            cout << "Got diff command!\n";
+            console_mutex.unlock();
+            still_running = handleDiff(clnt_sock);
+
+        } else if (command == "PULL") {
+            console_mutex.lock();
+            cout << "Got pull command!\n";
+            console_mutex.unlock();
+            still_running = handlePull(clnt_sock);
+
+        } else if (command == "LEAVE") {
+            console_mutex.lock();
+            cout << "Got leave command!\n";
+            console_mutex.unlock();
+            still_running = false;
+        } else {
+            // Client somehow sent an incorrect command. Retry client handling
+            // Handle this better later
+            console_mutex.lock();
+            cout << "Didn't receive a real command\n";
+            console_mutex.unlock();
+        }
     }
-    buffer[rec_com_size] = '\0';
-
-    // Process which command the server received
-    string command = buffer;
-    cout << "Rec command: " << command << "\n";
-
-    if (command == "LIST") {
-        cout << "Got list command!\n";
-        return handleList(clnt_sock);
-
-    } else if (command == "DIFF") {
-        cout << "Got diff command!\n";
-        return handleDiff(clnt_sock);
-
-    } else if (command == "PULL") {
-        cout << "Got pull command!\n";
-        return handlePull(clnt_sock);
-
-    } else if (command == "LEAVE") {
-        cout << "Got leave command!\n";
-        return false;
-    } else {
-        // Client somehow sent an incorrect command. Retry client handling
-        // Handle this better later
-        cout << "Didn't receive a real command\n";
-        return true;
-    }
+    close(clnt_sock);
 }
 
 /* The main function */
@@ -329,29 +368,27 @@ int main(int argc, char *argv[])
       fatal_error("listen() failed");
     }
 
-    // printf("listening for incoming connections\n");
+    // Vector for storing client threads
+    vector<thread> client_threads;
 
     /* Loop server forever*/
     printf("Begin listening for clients on port: %d\n", 3179);
-    bool still_listening = true;
-    while(1)
+    while(true)
     {
       /* Accept incoming connection */
       clnt_len = sizeof(clnt_addr);
       if ( (clnt_sock = accept(sock, (struct sockaddr *) &clnt_addr, &clnt_len)) < 0) {
         fatal_error("accept() failed");
       }
-      printf("accepted client!\n");
+
+      // Lock io
+      console_mutex.lock();
+      cout << "client accepted: " << inet_ntoa(clnt_addr.sin_addr) << ":" << ntohs(clnt_addr.sin_port) << "\n";
+      console_mutex.unlock();
 
       /* BEGIN NEW FUNCTIONALITIES */
-      
-      while(still_listening) {
-        still_listening = handleClient(clnt_sock);
-      }
-
-      close(clnt_sock);
-      break;
+      client_threads.push_back(thread(handleClient, clnt_sock, clnt_addr));
+      client_threads.back().detach();
     }
-
 }
 
