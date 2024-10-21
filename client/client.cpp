@@ -1,8 +1,8 @@
 /*///////////////////////////////////////////////////////////
 *
-* FILE:		client.c
-* AUTHOR:	Your Name Here
-* PROJECT:	CNT 4007 Project 1 - Professor Traynor
+* FILE:		client.cpp
+* AUTHOR:	Brian Nielsen, Kyle Ho-Nguyen
+* PROJECT:	CNT 4007 Project 2 - Professor Traynor
 * DESCRIPTION:	Network Client Code
 *
 *////////////////////////////////////////////////////////////
@@ -82,6 +82,12 @@ vector<Song> getLocalSongs() {
     for (const auto &song : filesystem::directory_iterator(root_dir)) {
         // Check if we have a file not a directory
         if (song.is_regular_file()) {
+
+            // Not including Makefile as a song
+            if(song.path().filename().string().compare("Makefile") == 0){
+                continue;
+            }
+
             // Get the song's path so we can hash it
             string song_path = song.path().string();
             uint32_t song_hash = getSongHash(song_path);
@@ -94,7 +100,7 @@ vector<Song> getLocalSongs() {
 
             // Ensure song is unique
             if(uids.find(song_entry.uid) == uids.end()) {
-                // Ensure song isn't a server file
+                // Ensure song isn't a client file
                 string title = song_entry.title;
                 if (("client.cpp" != title) && ("client" != title)) {
                     uids.insert(song_entry.uid);
@@ -335,6 +341,18 @@ bool handleLeave(int &clientSock) {
     return false;
 }
 
+bool handleInvalidCommand(int &clientSock, string command) {
+    // Send command to server
+
+    int msglen = strlen(command.c_str());
+    if (send(clientSock, command.c_str(), msglen, 0) != msglen) {
+        fatal_error("Failed to send LIST command to server.");
+    }
+
+
+    return true;
+}
+
 bool handleConnection(int &clientSock) {
     string command;
     cout << "Choose a command (LIST, DIFF, PULL, LEAVE): ";
@@ -354,7 +372,7 @@ bool handleConnection(int &clientSock) {
 
     } else {
         cout << "Invalid command ...\n";
-        return true;
+        return handleInvalidCommand(clientSock, command);
     }
 }
 
@@ -364,18 +382,10 @@ int main(int argc, char *argv[])
     int clientSock;		    /* socket descriptor */
     struct sockaddr_in serv_addr;   /* The server address */
 
-    char *studentName;		    /* Your Name */
-
     char sndBuf[SNDBUFSIZE];	    /* Send Buffer */
     char rcvBuf[RCVBUFSIZE];	    /* Receive Buffer */
 
-    /* Get the Student Name from the command line */
-    if (argc != 2) 
-    {
-	printf("Incorrect input format. The correct format is:\n\tnameChanger your_name\n");
-	exit(1);
-    }
-    studentName = argv[1];
+
     memset(&sndBuf, 0, RCVBUFSIZE);
     memset(&rcvBuf, 0, RCVBUFSIZE);
 

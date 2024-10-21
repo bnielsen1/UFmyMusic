@@ -1,8 +1,8 @@
 /*///////////////////////////////////////////////////////////
 *
-* FILE:		server.c
-* AUTHOR:	Your Name Here
-* PROJECT:	CNT 4007 Project 1 - Professor Traynor
+* FILE:		server.cpp
+* AUTHOR:	Brian Nielsen, Kyle Ho-Nguyen
+* PROJECT:	CNT 4007 Project 2 - Professor Traynor
 * DESCRIPTION:	Network Server Code
 *
 *////////////////////////////////////////////////////////////
@@ -27,6 +27,8 @@
 #include <filesystem>
 #include <openssl/sha.h>
 #include <openssl/evp.h>  /* for OpenSSL EVP digest libraries/SHA256 */
+#include <ctime>  // For timestamp
+#include <sys/stat.h> // For mkdir
 
 using namespace std;
 
@@ -81,6 +83,12 @@ map<uint32_t, Song> getLocalSongs(int &clnt_sock) {
     for (const auto &song : filesystem::directory_iterator(root_dir)) {
         // Check if we have a file not a directory
         if (song.is_regular_file()) {
+
+            // Not including Makefile as a song
+            if(song.path().filename().string().compare("Makefile") == 0){
+                continue;
+            }
+
             // Get the song's path so we can hash it
             string song_path = song.path().string();
             uint32_t song_hash = getSongHash(song_path);
@@ -114,6 +122,12 @@ map<uint32_t, Song> generateList(int &clnt_sock) {
     for (const auto &song : filesystem::directory_iterator(root_dir)) {
         // Check if we have a file not a directory
         if (song.is_regular_file()) {
+
+            // not including Makefile as a song
+            if(song.path().filename().string().compare("Makefile") == 0){
+                continue;
+            }
+            
             // Get the song's path so we can hash it
             string song_path = song.path().string();
             uint32_t song_hash = getSongHash(song_path);
@@ -172,8 +186,8 @@ bool handleList(int &clnt_sock) {
     map<uint32_t, Song> songs = generateList(clnt_sock);
 
     cout << "\n";
-    cout << left << setw(50) << "Song Title" <<  " | " << "UID\n";
     cout << "This is a reference. Client should print same result.\n";
+    cout << left << setw(50) << "Song Title" <<  " | " << "UID\n";
     cout << string(70, '-') << "\n";
 
     for (auto it = songs.begin(); it != songs.end(); it++) {
@@ -267,7 +281,57 @@ bool handlePull(int &clnt_sock) {
 
 }
 
+string currentTime() {
+
+    // gets timestamp of action
+    time_t now = time(0);
+    tm *ltm = localtime(&now);
+    char timestamp[20];
+    sprintf(timestamp, "%04d-%02d-%02d %02d:%02d:%02d", 1900 + ltm->tm_year, 1 + ltm->tm_mon, ltm->tm_mday, 
+            ltm->tm_hour, ltm->tm_min, ltm->tm_sec);
+    return string(timestamp);
+}
+
+void createClientLogDirectory() {
+    const char *dir = "clientlog";
+    // Check if the directory already exists
+    if (access(dir, F_OK) == -1) {
+        // Create the directory
+        if (mkdir(dir, 0755) != 0) {
+            fatal_error("Failed to create clientlog directory");
+        }
+    }
+}
+
+void logClientAction(const string &client_id, const string &action) {
+
+    // function to output timestamp and client action into log
+    ofstream log_file(client_id, ios::app); 
+    if (log_file.is_open()) {
+        log_file << "[" << currentTime() << "] " << action << "\n";
+        log_file.close();
+    } else {
+        fatal_error("Failed to open client log file");
+    }
+}
+
 void handleClient(int clnt_sock, sockaddr_in clnt_addr) {
+
+    // Ensure the clientlog directory exists
+    createClientLogDirectory();
+
+    // Generate a unique file name for logging this client's actions
+    string client_id = "clientlog/client_" + string(inet_ntoa(clnt_addr.sin_addr)) + "_" + to_string(ntohs(clnt_addr.sin_port)) + ".log";
+    ofstream log_file(client_id);
+    if (!log_file.is_open()) {
+        fatal_error("Failed to create log file for client");
+    }
+    log_file.close(); // Close after creation to append later
+
+    // Log client connection
+    logClientAction(client_id, "Client connected: " + string(inet_ntoa(clnt_addr.sin_addr)) + ":" + to_string(ntohs(clnt_addr.sin_port)));
+
+
     // Receive a command
     char buffer[RCVBUFSIZE];
     int rec_com_size;
@@ -296,24 +360,28 @@ void handleClient(int clnt_sock, sockaddr_in clnt_addr) {
         if (command == "LIST") {
             console_mutex.lock();
             cout << "Got list command!\n";
+            logClientAction(client_id, "Processing LIST command");
             console_mutex.unlock();
             still_running = handleList(clnt_sock);
 
         } else if (command == "DIFF") {
             console_mutex.lock();
             cout << "Got diff command!\n";
+            logClientAction(client_id, "Processing DIFF command");
             console_mutex.unlock();
             still_running = handleDiff(clnt_sock);
 
         } else if (command == "PULL") {
             console_mutex.lock();
             cout << "Got pull command!\n";
+            logClientAction(client_id, "Processing PULL command");
             console_mutex.unlock();
             still_running = handlePull(clnt_sock);
 
         } else if (command == "LEAVE") {
             console_mutex.lock();
             cout << "Got leave command!\n";
+            logClientAction(client_id, "Processing LEAVE command");
             console_mutex.unlock();
             still_running = false;
         } else {
@@ -321,6 +389,7 @@ void handleClient(int clnt_sock, sockaddr_in clnt_addr) {
             // Handle this better later
             console_mutex.lock();
             cout << "Didn't receive a real command\n";
+            logClientAction(client_id, "Invalid command received");
             console_mutex.unlock();
         }
     }
