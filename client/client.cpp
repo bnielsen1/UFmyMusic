@@ -1,8 +1,8 @@
 /*///////////////////////////////////////////////////////////
 *
-* FILE:		client.c
-* AUTHOR:	Your Name Here
-* PROJECT:	CNT 4007 Project 1 - Professor Traynor
+* FILE:		client.cpp
+* AUTHOR:	Brian Nielsen, Kyle Ho-Nguyen
+* PROJECT:	CNT 4007 Project 2 - Professor Traynor
 * DESCRIPTION:	Network Client Code
 *
 *////////////////////////////////////////////////////////////
