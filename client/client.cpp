@@ -86,6 +86,7 @@ vector<Song> getLocalSongs() {
             string song_path = song.path().string();
             uint32_t song_hash = getSongHash(song_path);
 
+            cout << song_path << endl;
             Song song_entry;
             song_entry.uid = song_hash;
             memset(song_entry.title, 0, sizeof(song_entry.title));
@@ -335,6 +336,18 @@ bool handleLeave(int &clientSock) {
     return false;
 }
 
+bool handleInvalidCommand(int &clientSock, string command) {
+    // Send command to server
+
+    int msglen = strlen(command.c_str());
+    if (send(clientSock, command.c_str(), msglen, 0) != msglen) {
+        fatal_error("Failed to send LIST command to server.");
+    }
+
+
+    return true;
+}
+
 bool handleConnection(int &clientSock) {
     string command;
     cout << "Choose a command (LIST, DIFF, PULL, LEAVE): ";
@@ -354,7 +367,7 @@ bool handleConnection(int &clientSock) {
 
     } else {
         cout << "Invalid command ...\n";
-        return true;
+        return handleInvalidCommand(clientSock, command);
     }
 }
 
