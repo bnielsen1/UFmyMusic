@@ -82,11 +82,16 @@ vector<Song> getLocalSongs() {
     for (const auto &song : filesystem::directory_iterator(root_dir)) {
         // Check if we have a file not a directory
         if (song.is_regular_file()) {
+
+            // Not including Makefile as a song
+            if(song.path().filename().string().compare("Makefile") == 0){
+                continue;
+            }
+
             // Get the song's path so we can hash it
             string song_path = song.path().string();
             uint32_t song_hash = getSongHash(song_path);
 
-            cout << song_path << endl;
             Song song_entry;
             song_entry.uid = song_hash;
             memset(song_entry.title, 0, sizeof(song_entry.title));
@@ -95,7 +100,7 @@ vector<Song> getLocalSongs() {
 
             // Ensure song is unique
             if(uids.find(song_entry.uid) == uids.end()) {
-                // Ensure song isn't a server file
+                // Ensure song isn't a client file
                 string title = song_entry.title;
                 if (("client.cpp" != title) && ("client" != title)) {
                     uids.insert(song_entry.uid);

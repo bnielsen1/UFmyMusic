@@ -84,16 +84,14 @@ map<uint32_t, Song> getLocalSongs(int &clnt_sock) {
         // Check if we have a file not a directory
         if (song.is_regular_file()) {
 
-            cout << "Found entry: " << song.path().string() << endl;
-            if(song.path().string().compare("Makefile") == 0){
-                cout << "Makefile found. skipping" << endl;
+            // Not including Makefile as a song
+            if(song.path().filename().string().compare("Makefile") == 0){
                 continue;
             }
 
             // Get the song's path so we can hash it
             string song_path = song.path().string();
             uint32_t song_hash = getSongHash(song_path);
-            cout << song.path().filename().string() << endl;
 
             Song song_entry;
             song_entry.uid = song_hash;
@@ -125,8 +123,8 @@ map<uint32_t, Song> generateList(int &clnt_sock) {
         // Check if we have a file not a directory
         if (song.is_regular_file()) {
 
-            if(song.path().string().compare("Makefile") == 0){
-                cout << "Makefile found. skipping" << endl;
+            // not including Makefile as a song
+            if(song.path().filename().string().compare("Makefile") == 0){
                 continue;
             }
             
@@ -134,7 +132,6 @@ map<uint32_t, Song> generateList(int &clnt_sock) {
             string song_path = song.path().string();
             uint32_t song_hash = getSongHash(song_path);
 
-            cout << song.path().filename().string() << endl;
             Song song_entry;
             song_entry.uid = song_hash;
             memset(song_entry.title, 0, sizeof(song_entry.title));
