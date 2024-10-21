@@ -1,28 +1,25 @@
 # UFmyMusic
 
-## Running
+## Compiling and Running
 
 Building/running the server:
 - cd to server folder
-- compile with "g++ server.cpp -o server -lssl -lcrypto"
+- compile by running "make"
     - Note these are unix based libraries so you might have to compile on UF linux servers or a linux/mac based computer
 - run with "./server"
 
 Building/running the client:
 - cd to client folder
-- compile with "g++ client.cpp -o client -lssl -lcrypto"
-- run with "./client Name"
-    - I copied my code from P1 to begin working and didn't remove this requirement. Remove this later.
+- compile by running "make"
+- run with "./client"
 
-## TO - DO
+Building/running multiple clients:
+#### Note that to establish a new client that uses their own data, the client folder must be copied for the additional client being connected.
+- copy client folder. Rename copied folder, if necessary. 
+- cd to copied client folder
+- compile by running "make"
+    - Note these are unix based libraries so you might have to compile on UF linux servers or a linux/mac based computer
+- run with "./client"
 
-Missing Content:
-- Not multithreaded
-- Does not log client interactions to a file on the server
-
-Bugs:
-- N/A :D
-
-Potential Bugs:
-- Song filename is larger than rcv buffer size on client
-- Pulling when files on server and client have same name but different content
+## Adding Songs
+- Download the song you'd like and save it into the server or client folder. 
