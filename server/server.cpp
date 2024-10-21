@@ -1,6 +1,6 @@
 /*///////////////////////////////////////////////////////////
 *
-* FILE:		server.c
+* FILE:		server.cpp
 * AUTHOR:	Brian Nielsen, Kyle Ho-Nguyen
 * PROJECT:	CNT 4007 Project 2 - Professor Traynor
 * DESCRIPTION:	Network Server Code
