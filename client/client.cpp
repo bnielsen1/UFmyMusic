@@ -154,7 +154,7 @@ bool handleList(int &clientSock) {
     vector<Song> songs = serverList(clientSock);
 
     if (songs.empty()) {
-        "Server did not have any songs in its directory.\n";
+        cout << "Server did not have any songs in its directory.\n";
     }
     else {
         cout << "\n";

@@ -185,17 +185,23 @@ bool handleList(int &clnt_sock) {
     
     map<uint32_t, Song> songs = generateList(clnt_sock);
 
-    cout << "\n";
-    cout << "This is a reference. Client should print same result.\n";
-    cout << left << setw(50) << "Song Title" <<  " | " << "UID\n";
-    cout << string(70, '-') << "\n";
-
-    for (auto it = songs.begin(); it != songs.end(); it++) {
-        Song entry = it->second;
-        cout << left << setw(50) << entry.title << " | " << entry.uid << "\n";
+    if (songs.empty()) {
+        cout << "No songs found on server.\n";
     }
 
-    cout << "\n";
+    else {
+        cout << "\n";
+        cout << "This is a reference. Client should print same result.\n";
+        cout << left << setw(50) << "Song Title" <<  " | " << "UID\n";
+        cout << string(70, '-') << "\n";
+
+        for (auto it = songs.begin(); it != songs.end(); it++) {
+            Song entry = it->second;
+            cout << left << setw(50) << entry.title << " | " << entry.uid << "\n";
+        }
+
+        cout << "\n";
+    }
 
     list_mutex.unlock();
 
