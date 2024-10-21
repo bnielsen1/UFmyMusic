@@ -364,18 +364,10 @@ int main(int argc, char *argv[])
     int clientSock;		    /* socket descriptor */
     struct sockaddr_in serv_addr;   /* The server address */
 
-    char *studentName;		    /* Your Name */
-
     char sndBuf[SNDBUFSIZE];	    /* Send Buffer */
     char rcvBuf[RCVBUFSIZE];	    /* Receive Buffer */
 
-    /* Get the Student Name from the command line */
-    if (argc != 2) 
-    {
-	printf("Incorrect input format. The correct format is:\n\tnameChanger your_name\n");
-	exit(1);
-    }
-    studentName = argv[1];
+
     memset(&sndBuf, 0, RCVBUFSIZE);
     memset(&rcvBuf, 0, RCVBUFSIZE);
 
