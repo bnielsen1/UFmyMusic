@@ -19,9 +19,8 @@
 #include <string>
 #include <set>
 #include <unordered_map>
-#include <thread>
+#include <pthread.h>
 #include <vector>
-#include <mutex>
 #include <map>
 #include <fstream>
 #include <filesystem>
@@ -37,14 +36,17 @@ using namespace std;
 #define BUFSIZE 40		/* Your name can be as many as 40 chars */
 #define MAXPENDING 10 /* Max number of incoming connections */
 
-mutex console_mutex;
-mutex list_mutex;
-mutex diff_mutex;
-mutex pull_mutex;
+pthread_mutex_t output_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t function_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 struct Song {
     char title[256];
     uint32_t uid;
+};
+
+struct ThreadArgs {
+    int clnt_sock;
+    sockaddr_in clnt_addr;
 };
 
 /* Fatal Error Handler */
@@ -170,18 +172,18 @@ map<uint32_t, Song> generateList(int &clnt_sock) {
 }
 
 bool handleDiff(int &clnt_sock) {
-    list_mutex.lock();
+    pthread_mutex_lock(&function_mutex);
 
     // Send a list of local server files to the client
     generateList(clnt_sock);
 
-    list_mutex.unlock();
+    pthread_mutex_unlock(&function_mutex);
 
     return true;
 }
 
 bool handleList(int &clnt_sock) {
-    list_mutex.lock();
+    pthread_mutex_lock(&function_mutex);
     
     map<uint32_t, Song> songs = generateList(clnt_sock);
 
@@ -203,13 +205,13 @@ bool handleList(int &clnt_sock) {
         cout << "\n";
     }
 
-    list_mutex.unlock();
+    pthread_mutex_unlock(&function_mutex);
 
     return true;
 }
 
 bool handlePull(int &clnt_sock) {
-    list_mutex.lock();
+    pthread_mutex_lock(&function_mutex);
 
     // Grab a list of songs that are on the server locally
     map<uint32_t, Song> local_songs = getLocalSongs(clnt_sock);
@@ -281,7 +283,7 @@ bool handlePull(int &clnt_sock) {
         song_file.close();
     }
 
-    list_mutex.unlock();
+    pthread_mutex_unlock(&function_mutex);
 
     return true;
 
@@ -321,7 +323,12 @@ void logClientAction(const string &client_id, const string &action) {
     }
 }
 
-void handleClient(int clnt_sock, sockaddr_in clnt_addr) {
+void* handleClient(void* _args) {
+
+    // make conversions
+    ThreadArgs args = *(ThreadArgs*)_args;
+    int clnt_sock = args.clnt_sock;
+    sockaddr_in clnt_addr = args.clnt_addr;
 
     // Ensure the clientlog directory exists
     createClientLogDirectory();
@@ -349,9 +356,9 @@ void handleClient(int clnt_sock, sockaddr_in clnt_addr) {
             fatal_error("Failed to receive a client command!");
         }
         else if (rec_com_size == 0) {
-            console_mutex.lock();
+            pthread_mutex_lock(&output_mutex);
             cout << "a client disconnected.\n";
-            console_mutex.unlock();
+            pthread_mutex_unlock(&output_mutex);
             still_running = false;
             break;
         }
@@ -359,52 +366,58 @@ void handleClient(int clnt_sock, sockaddr_in clnt_addr) {
 
         // Process which command the server received
         string command = buffer;
-        console_mutex.lock();
+        pthread_mutex_lock(&output_mutex);
         cout << "Rec command: " << command << "\n";
-        console_mutex.unlock();
+        pthread_mutex_unlock(&output_mutex);
 
         if (command == "LIST") {
-            console_mutex.lock();
+            pthread_mutex_lock(&output_mutex);
             cout << "Got list command!\n";
             logClientAction(client_id, "Processing LIST command");
-            console_mutex.unlock();
+            pthread_mutex_unlock(&output_mutex);
             still_running = handleList(clnt_sock);
 
         } else if (command == "DIFF") {
-            console_mutex.lock();
+            pthread_mutex_lock(&output_mutex);
             cout << "Got diff command!\n";
             logClientAction(client_id, "Processing DIFF command");
-            console_mutex.unlock();
+            pthread_mutex_unlock(&output_mutex);
             still_running = handleDiff(clnt_sock);
 
         } else if (command == "PULL") {
-            console_mutex.lock();
+            pthread_mutex_lock(&output_mutex);
             cout << "Got pull command!\n";
             logClientAction(client_id, "Processing PULL command");
-            console_mutex.unlock();
+            pthread_mutex_unlock(&output_mutex);
             still_running = handlePull(clnt_sock);
 
         } else if (command == "LEAVE") {
-            console_mutex.lock();
+            pthread_mutex_lock(&output_mutex);
             cout << "Got leave command!\n";
             logClientAction(client_id, "Processing LEAVE command");
-            console_mutex.unlock();
+            pthread_mutex_unlock(&output_mutex);
             still_running = false;
         } else {
             // Client somehow sent an incorrect command. Retry client handling
             // Handle this better later
-            console_mutex.lock();
+            pthread_mutex_lock(&output_mutex);
             cout << "Didn't receive a real command\n";
             logClientAction(client_id, "Invalid command received");
-            console_mutex.unlock();
+            pthread_mutex_unlock(&output_mutex);
         }
     }
     close(clnt_sock);
+    return NULL;
 }
 
 /* The main function */
 int main(int argc, char *argv[])
 {
+
+    // Initialize Mutexes
+    pthread_mutex_init(&output_mutex, NULL);
+    pthread_mutex_init(&function_mutex, NULL);
+
     struct sockaddr_in serv_addr;
     int clnt_sock;
     struct sockaddr_in clnt_addr;
@@ -444,7 +457,7 @@ int main(int argc, char *argv[])
     }
 
     // Vector for storing client threads
-    vector<thread> client_threads;
+    vector<pthread_t> client_threads;
 
     /* Loop server forever*/
     printf("Begin listening for clients on port: %d\n", 3179);
@@ -457,13 +470,18 @@ int main(int argc, char *argv[])
       }
 
       // Lock io
-      console_mutex.lock();
+      pthread_mutex_lock(&output_mutex);
       cout << "client accepted: " << inet_ntoa(clnt_addr.sin_addr) << ":" << ntohs(clnt_addr.sin_port) << "\n";
-      console_mutex.unlock();
+      pthread_mutex_unlock(&output_mutex);
 
-      /* BEGIN NEW FUNCTIONALITIES */
-      client_threads.push_back(thread(handleClient, clnt_sock, clnt_addr));
-      client_threads.back().detach();
+      // Create respective thread for a client connection
+      
+      pthread_t clnt_thread;
+      ThreadArgs args = {clnt_sock, clnt_addr};
+      pthread_create(&clnt_thread, NULL, handleClient, (void*)&args);
+
+      client_threads.push_back(clnt_thread);
+      pthread_detach(client_threads.back());
     }
 }
 
